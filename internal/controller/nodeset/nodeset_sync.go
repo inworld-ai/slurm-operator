@@ -1315,6 +1315,20 @@ func (r *NodeSetReconciler) processCondemned(
 		return nil
 	}
 
+	// A held pod is never deleted. The hold covers work Slurm cannot see, so unlike a busy
+	// Slurm node there is no drain to wait on and nothing to cordon: cordoning would stop the
+	// node taking scheduled work, which the hold does not ask for, and would then rank the pod
+	// FIRST for deletion on the next pass. Checked before IsNodeDrained so a held pod costs no
+	// Slurm call.
+	if held, _ := structutils.GetBoolFromAnnotations(pod.Annotations, slinkyv1beta1.AnnotationPodHold); held {
+		logger.V(2).Info("NodeSet Pod is held, skipping termination",
+			"pod", klog.KObj(pod))
+		nodesetKey := objectutils.KeyFunc(nodeset)
+		durationStore.Push(nodesetKey, 30*time.Second)
+		r.expectations.DeletionObserved(logger, nodesetKey, kubecontroller.PodKey(pod))
+		return nil
+	}
+
 	isDrained, err := r.slurmControl.IsNodeDrained(ctx, nodeset, pod)
 	if err != nil {
 		return err

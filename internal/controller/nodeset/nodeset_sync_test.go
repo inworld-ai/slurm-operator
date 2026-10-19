@@ -1547,6 +1547,65 @@ func TestNodeSetReconciler_processCondemned(t *testing.T) {
 				wantPodDeleted: false,
 			}
 		}(),
+		func() testCaseFields {
+			// Same shape as "drain" -- an IDLE Slurm node, which is not drained, so the
+			// pod would be cordoned and drained -- except that it is held. Neither
+			// happens: the hold is about work Slurm cannot see, so there is nothing to
+			// drain and nothing to wait for.
+			nodeset := newNodeSet("foo", controller.Name, 2)
+			pods := []*corev1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace:   corev1.NamespaceDefault,
+						Name:        "pod-0",
+						Annotations: map[string]string{slinkyv1beta1.AnnotationPodHold: "true"},
+					},
+					Status: corev1.PodStatus{
+						Phase: corev1.PodRunning,
+						Conditions: []corev1.PodCondition{
+							{
+								Type:   corev1.PodReady,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			}
+			podList := &corev1.PodList{
+				Items: structutils.DereferenceList(pods),
+			}
+			client := fake.NewFakeClient(nodeset, podList)
+			slurmNodeList := &slurmtypes.V0044NodeList{
+				Items: []slurmtypes.V0044Node{
+					{
+						V0044Node: slurmapi.V0044Node{
+							Name:  ptr.To(nodesetutils.GetSlurmNodeName(pods[0])),
+							State: ptr.To([]slurmapi.V0044NodeState{slurmapi.V0044NodeStateIDLE}),
+						},
+					},
+				},
+			}
+			slurmClient := newFakeClientList(sinterceptor.Funcs{}, slurmNodeList)
+			clientMap := newClientMap(controller.Name, slurmClient)
+
+			return testCaseFields{
+				name: "held",
+				fields: fields{
+					Client:    client,
+					ClientMap: clientMap,
+				},
+				args: args{
+					ctx:       context.TODO(),
+					nodeset:   nodeset,
+					condemned: pods,
+					i:         0,
+				},
+				wantErr:        false,
+				wantDrain:      false,
+				wantDelete:     false,
+				wantPodDeleted: false,
+			}
+		}(),
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

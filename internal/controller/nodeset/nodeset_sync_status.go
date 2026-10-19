@@ -36,6 +36,7 @@ import (
 	"github.com/SlinkyProject/slurm-operator/internal/utils/mathutils"
 	"github.com/SlinkyProject/slurm-operator/internal/utils/objectutils"
 	"github.com/SlinkyProject/slurm-operator/internal/utils/podutils"
+	"github.com/SlinkyProject/slurm-operator/internal/utils/structutils"
 	slurmconditions "github.com/SlinkyProject/slurm-operator/pkg/conditions"
 )
 
@@ -492,7 +493,11 @@ func (r *NodeSetReconciler) updateNodeSetPodPDBLabels(
 	syncPodPDBLabelsFn := func(i int) error {
 		pod := pods[i]
 		mutateFn := func(pod *corev1.Pod) error {
-			podProtect := slurmconditions.IsNodeBusy(&pod.Status)
+			// A hold means work Slurm cannot see, so it protects the pod exactly as a busy
+			// Slurm node does. Without this the PDB would let a node drain evict the pod
+			// even though the roll itself refuses to delete it.
+			held, _ := structutils.GetBoolFromAnnotations(pod.Annotations, slinkyv1beta1.AnnotationPodHold)
+			podProtect := slurmconditions.IsNodeBusy(&pod.Status) || held
 			logger.V(1).Info("Pending Pod Label update", "pod", klog.KObj(pod), "podProtect", podProtect)
 			if podProtect && ptr.Deref(nodeset.Spec.WorkloadDisruptionProtection, defaults.DefaultNodeSetWorkloadDisruptionProtection) {
 				pod.Labels[slinkyv1beta1.LabelNodeSetPodProtect] = "true"

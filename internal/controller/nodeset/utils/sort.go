@@ -55,6 +55,16 @@ func (o ActivePods) Less(i, j int) bool {
 		return !podutil.IsPodReady(pod1)
 	}
 
+	// Step: not held < held
+	// A hold is a hard constraint, so it outranks every preference below: processCondemned
+	// refuses to delete a held pod, and ranking it last keeps it from taking a slot of the
+	// rolling update's budget that an unheld pod could have used.
+	podHold1, _ := structutils.GetBoolFromAnnotations(pod1.Annotations, slinkyv1beta1.AnnotationPodHold)
+	podHold2, _ := structutils.GetBoolFromAnnotations(pod2.Annotations, slinkyv1beta1.AnnotationPodHold)
+	if podHold1 != podHold2 {
+		return !podHold1
+	}
+
 	// Step: lower pod-deletion-cost < higher pod-deletion-cost
 	podDeletionCost1, _ := structutils.GetNumberFromAnnotations(pod1.Annotations, slinkyv1beta1.AnnotationPodDeletionCost)
 	podDeletionCost2, _ := structutils.GetNumberFromAnnotations(pod2.Annotations, slinkyv1beta1.AnnotationPodDeletionCost)

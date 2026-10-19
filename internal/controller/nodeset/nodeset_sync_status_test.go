@@ -1359,3 +1359,46 @@ func Test_calculateOrdinalToNode(t *testing.T) {
 		})
 	}
 }
+
+func TestNodeSetReconciler_updateNodeSetPodPDBLabels_hold(t *testing.T) {
+	// The PDB tracks the pod-protect label. An idle Slurm node is not busy, so without
+	// the hold the pod carries no label and a node drain may evict it -- even though the
+	// rolling update refuses to delete it. Both halves have to agree.
+	nodeset := newNodeSet("foo", "slurm", 2)
+	held := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:   corev1.NamespaceDefault,
+			Name:        "pod-0",
+			Annotations: map[string]string{slinkyv1beta1.AnnotationPodHold: "true"},
+			Labels:      map[string]string{},
+		},
+	}
+	idle := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: corev1.NamespaceDefault,
+			Name:      "pod-1",
+			Labels:    map[string]string{},
+		},
+	}
+	pods := []*corev1.Pod{held, idle}
+	fakeClient := fake.NewFakeClient(nodeset, &corev1.PodList{Items: structutils.DereferenceList(pods)})
+	r := newNodeSetController(fakeClient, newClientMap("slurm", newFakeClientList(slurminterceptor.Funcs{})))
+
+	if err := r.updateNodeSetPodPDBLabels(context.TODO(), nodeset, pods); err != nil {
+		t.Fatalf("updateNodeSetPodPDBLabels() error = %v", err)
+	}
+
+	for _, tc := range []struct {
+		pod  *corev1.Pod
+		want bool
+	}{{held, true}, {idle, false}} {
+		got := &corev1.Pod{}
+		if err := r.Get(context.TODO(), client.ObjectKeyFromObject(tc.pod), got); err != nil {
+			t.Fatalf("Get(%s) error = %v", tc.pod.Name, err)
+		}
+		_, labelled := got.Labels[slinkyv1beta1.LabelNodeSetPodProtect]
+		if labelled != tc.want {
+			t.Errorf("pod %s protected = %v, want %v", tc.pod.Name, labelled, tc.want)
+		}
+	}
+}

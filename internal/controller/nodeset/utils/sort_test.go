@@ -323,6 +323,34 @@ func TestSortingActivePods(t *testing.T) {
 				"cordonedDeadlineCost100",
 			},
 		},
+		{
+			// A hold outranks every other hint: the held pods go last however
+			// attractive their other annotations make them, so the rolling update
+			// spends its budget on pods it is actually allowed to delete.
+			name: "Held pods sort last",
+			pods: []corev1.Pod{
+				newRunningPod("heldAndCheapest", map[string]string{
+					slinkyv1beta1.AnnotationPodHold:         "true",
+					slinkyv1beta1.AnnotationPodDeletionCost: "-100",
+				}),
+				newRunningPod("heldAndCordoned", map[string]string{
+					slinkyv1beta1.AnnotationPodHold:   "true",
+					slinkyv1beta1.AnnotationPodCordon: "true",
+				}),
+				newRunningPod("holdFalse", map[string]string{
+					slinkyv1beta1.AnnotationPodHold: "false",
+				}),
+				newRunningPod("busyWithDeadline", map[string]string{
+					slinkyv1beta1.AnnotationPodDeadline: time.Now().Format(time.RFC3339),
+				}),
+			},
+			wantOrder: []string{
+				"holdFalse",
+				"busyWithDeadline",
+				"heldAndCheapest",
+				"heldAndCordoned",
+			},
+		},
 	}
 
 	for _, test := range tests {

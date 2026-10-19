@@ -232,6 +232,36 @@ operator updates this annotation based on the pod's running Slurm workload. Pods
 with **earlier** deadlines are preferred to be deleted before pods with
 **later** deadlines.
 
+### Pod Hold
+
+The `nodeset.slinky.slurm.net/pod-hold` annotation marks a pod whose node is doing
+work Slurm cannot see, and must not be replaced until that work is done. Slurm node
+state only covers scheduled workload, so a GPU driven from outside the scheduler
+leaves the node `IDLE`, which otherwise reads as free: the rolling update deletes the
+pod and the work dies with it.
+
+While the annotation is `true` the operator will not delete the pod, ranks it last
+among deletion candidates so it does not consume the update's budget, and labels it
+`pod-protect` so the PodDisruptionBudget refuses eviction as well.
+
+```sh
+# Hold this pod
+kubectl annotate pod <pod> nodeset.slinky.slurm.net/pod-hold=true
+
+# Release it
+kubectl annotate pod <pod> nodeset.slinky.slurm.net/pod-hold-
+```
+
+Unlike `pod-deletion-cost` and `pod-deadline`, this is a hard constraint rather than a
+preference. The operator only reads it: whoever starts the unscheduled work is
+responsible for setting it and, more importantly, for clearing it. A hold that is
+never released keeps that pod on its old revision indefinitely.
+
+A hold does **not** drain the Slurm node. It says the node is in use, not that it
+should stop accepting scheduled work. If the unscheduled work needs the GPUs to
+itself, drain or reserve the node as well, or hold the resources with a real Slurm
+allocation instead, which makes the node `ALLOCATED` and needs no annotation at all.
+
 ## Workload Disruption Protection
 
 When `spec.workloadDisruptionProtection` is enabled on a NodeSet, the operator

@@ -28,6 +28,14 @@ const (
 	// workload by. Pods with an earlier deadline are preferred to be deleted before pods with a later deadline.
 	// NOTE: this is honored on a best-effort basis, and does not offer guarantees on pod deletion order.
 	AnnotationPodDeadline = NodeSetPrefix + "pod-deadline"
+
+	// AnnotationPodHold indicates the node is doing work that Slurm cannot see, so the pod must not be
+	// deleted. Slurm node state only covers scheduled workload; a GPU driven from outside the scheduler
+	// leaves the node IDLE, which otherwise reads as free and the pod is replaced under the work.
+	// Unlike the other hints above, this one is a hard constraint, not a preference: a held pod is ranked
+	// last for deletion AND refused by processCondemned, and it is protected from eviction by the PDB.
+	// NOTE: set and cleared by whoever owns the unscheduled work; the operator only reads it.
+	AnnotationPodHold = NodeSetPrefix + "pod-hold"
 )
 
 // Well Known Annotations for Objects of type corev1.Node
